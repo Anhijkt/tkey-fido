@@ -18,6 +18,11 @@ static volatile uint32_t *led =   (volatile uint32_t *)TK1_MMIO_TK1_LED;
 #define LED_BLUE  (1 << TK1_MMIO_TK1_LED_B_BIT)
 // clang-format on
 
+typedef enum state {
+	STATE_LOCK,
+	STATE_UNLOCK
+} state_t;
+
 const uint8_t app_name0[4] = "tk1 ";
 const uint8_t app_name1[4] = "fido";
 const uint32_t app_version = 0x00000001;
@@ -32,6 +37,7 @@ int main(void)
 	uint8_t rsp[CMDLEN_MAXBYTES];
 	uint8_t in;
 	uint8_t data[133];
+	state_t state_machine = STATE_UNLOCK;
 
 	rng_init_state();
 	u2f_init();
@@ -84,7 +90,7 @@ int main(void)
 
 		case APP_CMD_U2F_REGISTER: {
 			qemu_puts("APP_CMD_U2F_REGISTER\n");
-			if (hdr.len != 128) {
+			if (hdr.len != 128 || state_machine == STATE_LOCK) {
 				rsp[0] = STATUS_BAD;
 				appreply(hdr, APP_RSP_U2F_REGISTER, rsp);
 				break;
@@ -119,7 +125,7 @@ int main(void)
 
 		case APP_CMD_U2F_CHECKONLY: {
 			qemu_puts("APP_CMD_U2F_CHECKONLY\n");
-			if (hdr.len != 128) {
+			if (hdr.len != 128 || state_machine == STATE_LOCK) {
 				rsp[0] = STATUS_BAD;
 				appreply(hdr, APP_RSP_U2F_CHECKONLY, rsp);
 				break;
@@ -144,12 +150,13 @@ int main(void)
 		// SET first is also an error).
 		case APP_CMD_U2F_AUTHENTICATE_SET: {
 			qemu_puts("APP_CMD_U2F_AUTHENTICATE_SET\n");
-			if (hdr.len != 128) {
+			if (hdr.len != 128 || state_machine == STATE_LOCK) {
 				rsp[0] = STATUS_BAD;
 				appreply(hdr, APP_RSP_U2F_AUTHENTICATE, rsp);
 				break;
 			}
 
+			state_machine = STATE_LOCK;
 			// pick up appli_param, chall_param
 			memcpy(data, &cmd[1], 32 + 32);
 			rsp[0] = STATUS_OK;
@@ -159,12 +166,13 @@ int main(void)
 
 		case APP_CMD_U2F_AUTHENTICATE_GO: {
 			qemu_puts("APP_CMD_U2F_AUTHENTICATE_GO\n");
-			if (hdr.len != 128) {
+			if (hdr.len != 128 || state_machine == STATE_UNLOCK) {
 				rsp[0] = STATUS_BAD;
 				appreply(hdr, APP_RSP_U2F_AUTHENTICATE, rsp);
 				break;
 			}
 
+			state_machine = STATE_UNLOCK;
 			// pick up keyhandle, check_user, counter
 			memcpy(&data[32 + 32], &cmd[1], 64 + 1 + 4);
 
